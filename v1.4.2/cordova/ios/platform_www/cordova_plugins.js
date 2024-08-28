@@ -454,11 +454,11 @@ cordova.define('cordova/plugin_list', function(require, exports, module) {
       ]
     },
     {
-      "id": "cordova-plugin-idfa.Idfa",
-      "file": "plugins/cordova-plugin-idfa/www/Idfa.js",
-      "pluginId": "cordova-plugin-idfa",
-      "merges": [
-        "cordova.plugins.idfa"
+      "id": "cordova-plugin-inappbrowser.inappbrowser",
+      "file": "plugins/cordova-plugin-inappbrowser/www/inappbrowser.js",
+      "pluginId": "cordova-plugin-inappbrowser",
+      "clobbers": [
+        "cordova.InAppBrowser.open"
       ]
     }
   ];
@@ -482,6 +482,6 @@ cordova.define('cordova/plugin_list', function(require, exports, module) {
     "cordova-plugin-qrscanner": "3.0.1",
     "cordova-plugin-audio-recorder": "1.1.0",
     "cordova-plugin-camera": "7.0.0",
-    "cordova-plugin-idfa": "3.0.0"
+    "cordova-plugin-inappbrowser": "5.0.0"
   };
 });
