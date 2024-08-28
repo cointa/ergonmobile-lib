@@ -452,6 +452,14 @@ cordova.define('cordova/plugin_list', function(require, exports, module) {
       "clobbers": [
         "CameraPopoverHandle"
       ]
+    },
+    {
+      "id": "cordova-plugin-idfa.Idfa",
+      "file": "plugins/cordova-plugin-idfa/www/Idfa.js",
+      "pluginId": "cordova-plugin-idfa",
+      "merges": [
+        "cordova.plugins.idfa"
+      ]
     }
   ];
   module.exports.metadata = {
@@ -473,6 +481,7 @@ cordova.define('cordova/plugin_list', function(require, exports, module) {
     "cordova-plugin-add-swift-support": "2.0.2",
     "cordova-plugin-qrscanner": "3.0.1",
     "cordova-plugin-audio-recorder": "1.1.0",
-    "cordova-plugin-camera": "7.0.0"
+    "cordova-plugin-camera": "7.0.0",
+    "cordova-plugin-idfa": "3.0.0"
   };
 });
