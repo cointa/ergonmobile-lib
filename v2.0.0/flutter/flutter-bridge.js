@@ -477,6 +477,200 @@
   };
 
   // ====================================================================
+  // CAMERA PLUGIN
+  // ====================================================================
+  if (!window.Camera) {
+    window.Camera = {
+      DestinationType: {
+        DATA_URL: 0,
+        FILE_URI: 1,
+        NATIVE_URI: 2
+      },
+      EncodingType: {
+        JPEG: 0,
+        PNG: 1
+      },
+      MediaType: {
+        PICTURE: 0,
+        VIDEO: 1,
+        ALLMEDIA: 2
+      },
+      PictureSourceType: {
+        PHOTOLIBRARY: 0,
+        CAMERA: 1,
+        SAVEDPHOTOALBUM: 2
+      },
+      Direction: {
+        BACK: 0,
+        FRONT: 1
+      }
+    };
+  }
+
+  if (!navigator.camera) {
+    navigator.camera = {
+      getPicture: function(successCallback, errorCallback, options) {
+        log('Camera.getPicture chiamato con options: ' + JSON.stringify(options));
+
+        var sourceType = options.sourceType !== undefined ? options.sourceType : Camera.PictureSourceType.CAMERA;
+        var mediaType = options.mediaType !== undefined ? options.mediaType : Camera.MediaType.PICTURE;
+
+        var command = 'cameraTakePicture';
+        if (sourceType === Camera.PictureSourceType.PHOTOLIBRARY ||
+            sourceType === Camera.PictureSourceType.SAVEDPHOTOALBUM) {
+          if (mediaType === Camera.MediaType.VIDEO) {
+            command = 'cameraPickVideo';
+          } else if (mediaType === Camera.MediaType.ALLMEDIA) {
+            command = 'cameraPickMedia';
+          } else {
+            command = 'cameraPickImage';
+          }
+        }
+
+        sendCommand(command, {
+          quality: options.quality || 50,
+          destinationType: options.destinationType || Camera.DestinationType.FILE_URI,
+          sourceType: sourceType,
+          targetWidth: options.targetWidth || -1,
+          targetHeight: options.targetHeight || -1,
+          encodingType: options.encodingType || Camera.EncodingType.JPEG,
+          mediaType: mediaType,
+          allowEdit: options.allowEdit || false,
+          correctOrientation: options.correctOrientation || false,
+          saveToPhotoAlbum: options.saveToPhotoAlbum || false
+        })
+        .then(function(result) {
+          log('Camera.getPicture success: ' + result.filePath, 'success');
+          successCallback && successCallback(result.filePath);
+        })
+        .catch(function(error) {
+          log('Camera.getPicture error: ' + error.message, 'error');
+          errorCallback && errorCallback(error.message);
+        });
+      },
+
+      cleanup: function(successCallback, errorCallback) {
+        log('Camera.cleanup chiamato');
+        successCallback && successCallback();
+      }
+    };
+  }
+
+  // ====================================================================
+  // CAPTURE PLUGIN (Video/Audio/Image Capture)
+  // ====================================================================
+  if (!navigator.device) navigator.device = {};
+
+  if (!navigator.device.capture) {
+    navigator.device.capture = {
+      captureVideo: function(successCallback, errorCallback, options) {
+        log('Capture.captureVideo chiamato con options: ' + JSON.stringify(options));
+
+        sendCommand('captureVideo', {
+          limit: (options && options.limit) || 1,
+          duration: (options && options.duration) || 0
+        })
+        .then(function(result) {
+          log('Capture.captureVideo success', 'success');
+          var mediaFiles = result.files.map(function(file) {
+            return {
+              name: file.name,
+              fullPath: file.fullPath,
+              type: file.type,
+              lastModifiedDate: new Date(file.lastModified),
+              size: file.size
+            };
+          });
+          successCallback && successCallback(mediaFiles);
+        })
+        .catch(function(error) {
+          log('Capture.captureVideo error: ' + error.message, 'error');
+          errorCallback && errorCallback(error.message);
+        });
+      },
+
+      captureImage: function(successCallback, errorCallback, options) {
+        log('Capture.captureImage chiamato');
+
+        sendCommand('captureImage', {
+          limit: (options && options.limit) || 1
+        })
+        .then(function(result) {
+          log('Capture.captureImage success', 'success');
+          var mediaFiles = result.files.map(function(file) {
+            return {
+              name: file.name,
+              fullPath: file.fullPath,
+              type: file.type,
+              lastModifiedDate: new Date(file.lastModified),
+              size: file.size
+            };
+          });
+          successCallback && successCallback(mediaFiles);
+        })
+        .catch(function(error) {
+          log('Capture.captureImage error: ' + error.message, 'error');
+          errorCallback && errorCallback(error.message);
+        });
+      },
+
+      captureAudio: function(successCallback, errorCallback, options) {
+        log('Capture.captureAudio chiamato');
+
+        sendCommand('captureAudio', {
+          limit: (options && options.limit) || 1,
+          duration: (options && options.duration) || 0
+        })
+        .then(function(result) {
+          log('Capture.captureAudio success', 'success');
+          var mediaFiles = result.files.map(function(file) {
+            return {
+              name: file.name,
+              fullPath: file.fullPath,
+              type: file.type,
+              lastModifiedDate: new Date(file.lastModified),
+              size: file.size
+            };
+          });
+          successCallback && successCallback(mediaFiles);
+        })
+        .catch(function(error) {
+          log('Capture.captureAudio error: ' + error.message, 'error');
+          errorCallback && errorCallback(error.message);
+        });
+      }
+    };
+  }
+
+  // ====================================================================
+  // AUDIO RECORDER PLUGIN (Custom)
+  // ====================================================================
+  if (!navigator.device.audiorecorder) {
+    navigator.device.audiorecorder = {
+      recordAudio: function(successCallback, errorCallback, duration) {
+        log('AudioRecorder.recordAudio chiamato con duration: ' + duration);
+
+        sendCommand('audioRecorderRecord', {
+          duration: duration || 0
+        })
+        .then(function(result) {
+          log('AudioRecorder.recordAudio success', 'success');
+          var jsonResult = JSON.stringify({
+            full_path: result.filePath,
+            name: result.fileName,
+            type: result.mimeType
+          });
+          successCallback && successCallback(jsonResult);
+        })
+        .catch(function(error) {
+          log('AudioRecorder.recordAudio error: ' + error.message, 'error');
+          errorCallback && errorCallback(error.message);
+        });
+      }
+    };
+  }
+
+  // ====================================================================
   // FIX: Cordova-like deviceready behavior
   // Cordova chiamava i listener anche se deviceready era già stato dispatched
   // ====================================================================
