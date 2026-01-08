@@ -34,16 +34,22 @@
     console.log(prefix + ' [BRIDGE] ' + message);
   }
 
-  function sendCommand(command, data) {
+  function sendCommand(command, data, options) {
     data = data || {};
+    options = options || {};
     return new Promise(function(resolve, reject) {
       var requestId = generateRequestId();
       log('Invio comando: ' + command + ' [' + requestId + ']');
 
-      var timeoutId = setTimeout(function() {
-        pendingRequests.delete(requestId);
-        reject(new Error('Timeout: ' + command + ' non ha risposto entro ' + BRIDGE_CONFIG.timeout + 'ms'));
-      }, BRIDGE_CONFIG.timeout);
+      var effectiveTimeout = options.timeout === 0 ? 0 : (options.timeout || BRIDGE_CONFIG.timeout);
+      var timeoutId = null;
+
+      if (effectiveTimeout > 0) {
+        timeoutId = setTimeout(function() {
+          pendingRequests.delete(requestId);
+          reject(new Error('Timeout: ' + command + ' non ha risposto entro ' + effectiveTimeout + 'ms'));
+        }, effectiveTimeout);
+      }
 
       pendingRequests.set(requestId, {
         resolve: resolve,
@@ -104,6 +110,10 @@
       log('HTTP Header: ' + key + ' = ' + value);
       this._globalHeaders[key] = value;
     },
+    setCookie: function(url, cookie, options) {
+      log('HTTP setCookie: ' + url);
+      sendCommand('httpSetCookie', { url: url, cookie: cookie, options: options });
+    },
     request: function(url, options, success, failure) {
       log('HTTP Request: ' + url);
       var requestData = {
@@ -117,7 +127,13 @@
           (response.status >= 200 && response.status < 300) ? success(response) : failure(response);
         })
         .catch(function(error) {
-          failure({ status: -1, error: error.message });
+          var errorData = {
+            status: -1,
+            error: error.message,
+            headers: requestData.headers,
+            url: requestData.url
+          };
+          failure(errorData);
         });
     },
     get: function(url, params, headers, success, failure) {
@@ -165,7 +181,7 @@
     },
     scan: function(callback) {
       log('QRScanner scan');
-      sendCommand('qrScannerRequest')
+      sendCommand('qrScannerRequest', {}, { timeout: 0 })
         .then(function(response) { callback(null, response.result || ''); })
         .catch(function(error) { callback(error); });
     },
@@ -432,7 +448,7 @@
       // Per le directory, ritorna subito il DirectoryEntry
       successCallback && successCallback(createDirectoryEntry(path, FileSystemMock));
     } else {
-      // ✅ CORREZIONE: Per i file, controlla prima se esistono
+      // CORREZIONE: Per i file, controlla prima se esistono
       sendCommand('fileExists', { path: path })
         .then(function(result) {
           if (result.exists) {
@@ -455,6 +471,46 @@
     log('requestFileSystem: type=' + type + ', size=' + size);
     successCallback && successCallback(FileSystemMock);
   };
+
+  // ====================================================================
+  // FIX: Cordova-like deviceready behavior
+  // Cordova chiamava i listener anche se deviceready era già stato dispatched
+  // ====================================================================
+  var deviceReadyFired = false;
+  var deviceReadyCallbacks = [];
+
+  // Override di addEventListener per intercettare deviceready
+  var originalAddEventListener = document.addEventListener;
+  document.addEventListener = function(type, listener, options) {
+    if (type === 'deviceready') {
+      log('Listener deviceready registrato' + (deviceReadyFired ? ' (deviceready già fired, calling immediately)' : ''));
+      
+      if (deviceReadyFired) {
+        // deviceready già dispatched, chiama il listener immediatamente
+        setTimeout(function() {
+          log('Chiamata immediata listener deviceready (già fired)');
+          listener.call(document, new Event('deviceready'));
+        }, 0);
+      } else {
+        // deviceready non ancora dispatched, registra normalmente
+        deviceReadyCallbacks.push(listener);
+        originalAddEventListener.call(document, type, listener, options);
+      }
+    } else {
+      // Altri eventi, comportamento normale
+      originalAddEventListener.call(document, type, listener, options);
+    }
+  };
+
+  // Funzione helper per dispatch deviceready
+  function dispatchDeviceReady() {
+    if (!deviceReadyFired) {
+      deviceReadyFired = true;
+      log('Dispatching deviceready (prima volta)', 'success');
+      document.dispatchEvent(new Event('deviceready'));
+      log('Event deviceready dispatched', 'success');
+    }
+  }
 
   // Initialization
   function initialize() {
@@ -485,15 +541,14 @@
 
           log('Device info caricato: ' + JSON.stringify(window.device), 'success');
 
-          document.dispatchEvent(new Event('deviceready'));
-          log('Event deviceready dispatched', 'success');
+          dispatchDeviceReady();
         })
         .catch(function(error) {
           log('Errore caricamento device info: ' + error, 'error');
           window.device.platform = 'Android';
           window.device.uuid = 'unknown';
           window.device.serial = 'unknown';
-          document.dispatchEvent(new Event('deviceready'));
+          dispatchDeviceReady();
         });
       }
     });
