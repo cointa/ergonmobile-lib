@@ -168,6 +168,10 @@
       log('Keyboard.hide');
       return sendCommand('keyboardHide');
     },
+    close: function() {
+      log('Keyboard.close (aliased to hide)');
+      return this.hide();
+    },
     // Altri metodi possono essere aggiunti qui se necessario
     onshow: function() {},
     onhide: function() {}
