@@ -507,7 +507,7 @@
     log('resolveLocalFileSystemURL: ' + url);
     var path = url
       .replace('cdvfile://localhost/persistent/', '')
-      .replace('file:///', '')
+      .replace('file://', '')
       .replace(/^data\/data\//, '')
       .replace(/^\/+/, '');
     var isDirectory = url.endsWith('/') || path === '' || !path.includes('.');
