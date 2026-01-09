@@ -10,7 +10,7 @@
   // Config
   var BRIDGE_CONFIG = {
     debug: true,
-    timeout: 10000,
+    timeout: 30000,  // 30 secondi per camera/media operations
     maxRetries: 3
   };
 
@@ -282,12 +282,12 @@
 
       file: function(successCallback, errorCallback) {
         log('FileEntry.file: ' + this.fullPath);
-
+        
         // Determina se il file è binario dall'estensione
         var ext = this.name.split('.').pop().toLowerCase();
         var isBinary = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'avi', 'mov', 'm4a', 'mp3', 'wav'].indexOf(ext) !== -1;
         var command = isBinary ? 'fileReadAsDataURL' : 'fileRead';
-
+        
         sendCommand(command, { path: cleanPath })
           .then(function(result) {
             // Controlla se c'è un errore nel result
@@ -299,7 +299,7 @@
 
             var data = result.data;
             var mimeType = 'application/octet-stream';
-
+            
             // Estrai mime type dal data URL se presente
             if (isBinary && data.indexOf('data:') === 0) {
               var match = data.match(/^data:([^;]+);base64,/);
@@ -311,7 +311,7 @@
             } else if (!isBinary) {
               mimeType = 'text/plain';
             }
-
+            
             // Crea Blob appropriato
             var blob;
             if (isBinary) {
@@ -326,7 +326,7 @@
             } else {
               blob = new Blob([data], { type: mimeType });
             }
-
+            
             var file = new File([blob], this.name, { type: mimeType });
             file.fullPath = this.fullPath;
             successCallback && successCallback(file);
@@ -546,12 +546,12 @@
     navigator.camera = {
       getPicture: function(successCallback, errorCallback, options) {
         log('Camera.getPicture chiamato con options: ' + JSON.stringify(options));
-
+        
         var sourceType = options.sourceType !== undefined ? options.sourceType : Camera.PictureSourceType.CAMERA;
         var mediaType = options.mediaType !== undefined ? options.mediaType : Camera.MediaType.PICTURE;
-
+        
         var command = 'cameraTakePicture';
-        if (sourceType === Camera.PictureSourceType.PHOTOLIBRARY ||
+        if (sourceType === Camera.PictureSourceType.PHOTOLIBRARY || 
             sourceType === Camera.PictureSourceType.SAVEDPHOTOALBUM) {
           if (mediaType === Camera.MediaType.VIDEO) {
             command = 'cameraPickVideo';
@@ -561,7 +561,7 @@
             command = 'cameraPickImage';
           }
         }
-
+        
         sendCommand(command, {
           quality: options.quality || 50,
           destinationType: options.destinationType || Camera.DestinationType.FILE_URI,
@@ -583,7 +583,7 @@
           errorCallback && errorCallback(error.message);
         });
       },
-
+      
       cleanup: function(successCallback, errorCallback) {
         log('Camera.cleanup chiamato');
         successCallback && successCallback();
@@ -595,12 +595,12 @@
   // CAPTURE PLUGIN (Video/Audio/Image Capture)
   // ====================================================================
   if (!navigator.device) navigator.device = {};
-
+  
   if (!navigator.device.capture) {
     navigator.device.capture = {
       captureVideo: function(successCallback, errorCallback, options) {
         log('Capture.captureVideo chiamato con options: ' + JSON.stringify(options));
-
+        
         sendCommand('captureVideo', {
           limit: (options && options.limit) || 1,
           duration: (options && options.duration) || 0
@@ -623,10 +623,10 @@
           errorCallback && errorCallback(error.message);
         });
       },
-
+      
       captureImage: function(successCallback, errorCallback, options) {
         log('Capture.captureImage chiamato');
-
+        
         sendCommand('captureImage', {
           limit: (options && options.limit) || 1
         }, { timeout: 0 })  // Nessun timeout per capture image
@@ -648,10 +648,10 @@
           errorCallback && errorCallback(error.message);
         });
       },
-
+      
       captureAudio: function(successCallback, errorCallback, options) {
         log('Capture.captureAudio chiamato');
-
+        
         sendCommand('captureAudio', {
           limit: (options && options.limit) || 1,
           duration: (options && options.duration) || 0
@@ -684,7 +684,7 @@
     navigator.device.audiorecorder = {
       recordAudio: function(successCallback, errorCallback, duration) {
         log('AudioRecorder.recordAudio chiamato con duration: ' + duration);
-
+        
         sendCommand('audioRecorderRecord', {
           duration: duration || 0
         }, { timeout: 0 })  // Nessun timeout per audio recorder
@@ -704,6 +704,201 @@
       }
     };
   }
+
+  // ====================================================================
+  // FILE TRANSFER PLUGIN
+  // ====================================================================
+  
+  window.FileUploadOptions = function() {
+    this.fileKey = 'file';
+    this.fileName = 'image.jpg';
+    this.mimeType = 'image/jpeg';
+    this.params = null;
+    this.headers = null;
+    this.httpMethod = 'POST';
+    this.chunkedMode = true;
+  };
+
+  window.FileTransferError = function(code, source, target, httpStatus, body) {
+    this.code = code;
+    this.source = source;
+    this.target = target;
+    this.http_status = httpStatus;
+    this.body = body;
+    this.exception = null;
+  };
+
+  window.FileTransferError.FILE_NOT_FOUND_ERR = 1;
+  window.FileTransferError.INVALID_URL_ERR = 2;
+  window.FileTransferError.CONNECTION_ERR = 3;
+  window.FileTransferError.ABORT_ERR = 4;
+  window.FileTransferError.NOT_MODIFIED_ERR = 5;
+
+  window.FileTransfer = function() {
+    this.onprogress = null;
+  };
+
+  window.FileTransfer.prototype.upload = function(filePath, server, successCallback, errorCallback, options, trustAllHosts) {
+    log('FileTransfer.upload chiamato: ' + filePath + ' -> ' + server);
+    
+    options = options || new FileUploadOptions();
+    
+    // Normalizza il path (rimuovi file://)
+    var cleanPath = filePath.replace(/^file:\/\//, '');
+    
+    // Prima leggi il file come data URL usando il nostro comando
+    var isBinary = true; // Assume sempre binario per upload
+    var command = isBinary ? 'fileReadAsDataURL' : 'fileRead';
+    
+    sendCommand(command, { path: cleanPath })
+      .then(function(result) {
+        if (result.error) {
+          log('FileTransfer: Errore lettura file: ' + result.error, 'error');
+          errorCallback && errorCallback(new FileTransferError(
+            FileTransferError.FILE_NOT_FOUND_ERR,
+            filePath,
+            server,
+            0,
+            result.error
+          ));
+          return;
+        }
+
+        // Converti data URL in Blob
+        var dataUrl = result.data;
+        var mimeType = options.mimeType || 'application/octet-stream';
+        var fileName = options.fileName || 'file';
+        
+        var blob;
+        if (dataUrl.indexOf('data:') === 0) {
+          // Estrai mime type e data dal data URL
+          var parts = dataUrl.split(',');
+          var header = parts[0];
+          var data = parts[1];
+          
+          var mimeMatch = header.match(/data:([^;]+);/);
+          if (mimeMatch) {
+            mimeType = mimeMatch[1];
+          }
+          
+          // Converti base64 a blob
+          var binaryString = atob(data);
+          var bytes = new Uint8Array(binaryString.length);
+          for (var i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          blob = new Blob([bytes], { type: mimeType });
+        } else {
+          // Dati testuali
+          blob = new Blob([result.data], { type: mimeType });
+        }
+
+        // Crea FormData per l'upload
+        var formData = new FormData();
+        formData.append(options.fileKey || 'file', blob, fileName);
+        
+        // Aggiungi parametri extra se presenti
+        if (options.params) {
+          for (var key in options.params) {
+            if (options.params.hasOwnProperty(key)) {
+              formData.append(key, options.params[key]);
+            }
+          }
+        }
+
+        // Prepara headers
+        var headers = {};
+        if (options.headers) {
+          for (var headerKey in options.headers) {
+            if (options.headers.hasOwnProperty(headerKey)) {
+              headers[headerKey] = options.headers[headerKey];
+            }
+          }
+        }
+
+        // Esegui upload con fetch
+        log('FileTransfer: Inizio upload a ' + server);
+        
+        fetch(server, {
+          method: options.httpMethod || 'POST',
+          body: formData,
+          headers: headers
+        })
+        .then(function(response) {
+          return response.text().then(function(responseText) {
+            return {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers,
+              body: responseText
+            };
+          });
+        })
+        .then(function(result) {
+          log('FileTransfer: Upload completato con status ' + result.status, 'success');
+          
+          var uploadResult = {
+            bytesSent: blob.size,
+            responseCode: result.status,
+            response: result.body,
+            headers: {}
+          };
+          
+          // Converti headers in oggetto
+          result.headers.forEach(function(value, key) {
+            uploadResult.headers[key] = value;
+          });
+          
+          if (result.status >= 200 && result.status < 300) {
+            successCallback && successCallback(uploadResult);
+          } else {
+            log('FileTransfer: Upload fallito con status ' + result.status, 'error');
+            errorCallback && errorCallback(new FileTransferError(
+              FileTransferError.CONNECTION_ERR,
+              filePath,
+              server,
+              result.status,
+              result.body
+            ));
+          }
+        })
+        .catch(function(error) {
+          log('FileTransfer: Errore upload: ' + error.message, 'error');
+          errorCallback && errorCallback(new FileTransferError(
+            FileTransferError.CONNECTION_ERR,
+            filePath,
+            server,
+            0,
+            error.message
+          ));
+        });
+      })
+      .catch(function(error) {
+        log('FileTransfer: Errore lettura file: ' + error.message, 'error');
+        errorCallback && errorCallback(new FileTransferError(
+          FileTransferError.FILE_NOT_FOUND_ERR,
+          filePath,
+          server,
+          0,
+          error.message
+        ));
+      });
+  };
+
+  window.FileTransfer.prototype.download = function(source, target, successCallback, errorCallback, trustAllHosts, options) {
+    log('FileTransfer.download non implementato');
+    errorCallback && errorCallback(new FileTransferError(
+      FileTransferError.NOT_MODIFIED_ERR,
+      source,
+      target,
+      0,
+      'Download not implemented'
+    ));
+  };
+
+  window.FileTransfer.prototype.abort = function() {
+    log('FileTransfer.abort chiamato');
+  };
 
   // ====================================================================
   // FIX: Cordova-like deviceready behavior
