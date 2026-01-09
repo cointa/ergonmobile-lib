@@ -282,12 +282,12 @@
 
       file: function(successCallback, errorCallback) {
         log('FileEntry.file: ' + this.fullPath);
-        
+
         // Determina se il file è binario dall'estensione
         var ext = this.name.split('.').pop().toLowerCase();
         var isBinary = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'avi', 'mov', 'm4a', 'mp3', 'wav'].indexOf(ext) !== -1;
         var command = isBinary ? 'fileReadAsDataURL' : 'fileRead';
-        
+
         sendCommand(command, { path: cleanPath })
           .then(function(result) {
             // Controlla se c'è un errore nel result
@@ -297,11 +297,16 @@
               return;
             }
 
-            var data = result.data;
+            var originalData = result.data;
+            var data = originalData;
             var mimeType = 'application/octet-stream';
-            
+            var dataURL = null;
+
             // Estrai mime type dal data URL se presente
             if (isBinary && data.indexOf('data:') === 0) {
+              // Salva il data URL completo per uso diretto
+              dataURL = data;
+
               var match = data.match(/^data:([^;]+);base64,/);
               if (match) {
                 mimeType = match[1];
@@ -311,7 +316,7 @@
             } else if (!isBinary) {
               mimeType = 'text/plain';
             }
-            
+
             // Crea Blob appropriato
             var blob;
             if (isBinary) {
@@ -326,9 +331,33 @@
             } else {
               blob = new Blob([data], { type: mimeType });
             }
-            
-            var file = new File([blob], this.name, { type: mimeType });
+
+            // Crea File object con proprietà Cordova-specific
+            var file = new File([blob], this.name, {
+              type: mimeType,
+              lastModified: Date.now()
+            });
+
+            // Aggiungi proprietà Cordova-like
             file.fullPath = this.fullPath;
+            file.localURL = 'file://' + this.fullPath;
+            file.start = 0;
+            file.end = blob.size;
+
+            // CRITICAL: Aggiungi data URL come proprietà per accesso diretto
+            // Questo permette al codice server di usare file.dataURL invece di FileReader
+            if (dataURL) {
+              file.dataURL = dataURL;
+              // Alcuni codici potrebbero cercare anche "data"
+              file.data = dataURL;
+            }
+
+            // Override slice per compatibilità
+            file.slice = function(start, end) {
+              return blob.slice(start || 0, end || blob.size, mimeType);
+            };
+
+            log('File object creato: ' + file.name + ' (' + file.size + ' bytes, type: ' + file.type + ')');
             successCallback && successCallback(file);
           }.bind(this))
           .catch(function(error) {
@@ -546,12 +575,12 @@
     navigator.camera = {
       getPicture: function(successCallback, errorCallback, options) {
         log('Camera.getPicture chiamato con options: ' + JSON.stringify(options));
-        
+
         var sourceType = options.sourceType !== undefined ? options.sourceType : Camera.PictureSourceType.CAMERA;
         var mediaType = options.mediaType !== undefined ? options.mediaType : Camera.MediaType.PICTURE;
-        
+
         var command = 'cameraTakePicture';
-        if (sourceType === Camera.PictureSourceType.PHOTOLIBRARY || 
+        if (sourceType === Camera.PictureSourceType.PHOTOLIBRARY ||
             sourceType === Camera.PictureSourceType.SAVEDPHOTOALBUM) {
           if (mediaType === Camera.MediaType.VIDEO) {
             command = 'cameraPickVideo';
@@ -561,7 +590,7 @@
             command = 'cameraPickImage';
           }
         }
-        
+
         sendCommand(command, {
           quality: options.quality || 50,
           destinationType: options.destinationType || Camera.DestinationType.FILE_URI,
@@ -583,7 +612,7 @@
           errorCallback && errorCallback(error.message);
         });
       },
-      
+
       cleanup: function(successCallback, errorCallback) {
         log('Camera.cleanup chiamato');
         successCallback && successCallback();
@@ -595,12 +624,12 @@
   // CAPTURE PLUGIN (Video/Audio/Image Capture)
   // ====================================================================
   if (!navigator.device) navigator.device = {};
-  
+
   if (!navigator.device.capture) {
     navigator.device.capture = {
       captureVideo: function(successCallback, errorCallback, options) {
         log('Capture.captureVideo chiamato con options: ' + JSON.stringify(options));
-        
+
         sendCommand('captureVideo', {
           limit: (options && options.limit) || 1,
           duration: (options && options.duration) || 0
@@ -623,10 +652,10 @@
           errorCallback && errorCallback(error.message);
         });
       },
-      
+
       captureImage: function(successCallback, errorCallback, options) {
         log('Capture.captureImage chiamato');
-        
+
         sendCommand('captureImage', {
           limit: (options && options.limit) || 1
         }, { timeout: 0 })  // Nessun timeout per capture image
@@ -648,10 +677,10 @@
           errorCallback && errorCallback(error.message);
         });
       },
-      
+
       captureAudio: function(successCallback, errorCallback, options) {
         log('Capture.captureAudio chiamato');
-        
+
         sendCommand('captureAudio', {
           limit: (options && options.limit) || 1,
           duration: (options && options.duration) || 0
@@ -684,7 +713,7 @@
     navigator.device.audiorecorder = {
       recordAudio: function(successCallback, errorCallback, duration) {
         log('AudioRecorder.recordAudio chiamato con duration: ' + duration);
-        
+
         sendCommand('audioRecorderRecord', {
           duration: duration || 0
         }, { timeout: 0 })  // Nessun timeout per audio recorder
@@ -708,7 +737,7 @@
   // ====================================================================
   // FILE TRANSFER PLUGIN
   // ====================================================================
-  
+
   window.FileUploadOptions = function() {
     this.fileKey = 'file';
     this.fileName = 'image.jpg';
@@ -740,16 +769,16 @@
 
   window.FileTransfer.prototype.upload = function(filePath, server, successCallback, errorCallback, options, trustAllHosts) {
     log('FileTransfer.upload chiamato: ' + filePath + ' -> ' + server);
-    
+
     options = options || new FileUploadOptions();
-    
+
     // Normalizza il path (rimuovi file://)
     var cleanPath = filePath.replace(/^file:\/\//, '');
-    
+
     // Prima leggi il file come data URL usando il nostro comando
     var isBinary = true; // Assume sempre binario per upload
     var command = isBinary ? 'fileReadAsDataURL' : 'fileRead';
-    
+
     sendCommand(command, { path: cleanPath })
       .then(function(result) {
         if (result.error) {
@@ -768,19 +797,19 @@
         var dataUrl = result.data;
         var mimeType = options.mimeType || 'application/octet-stream';
         var fileName = options.fileName || 'file';
-        
+
         var blob;
         if (dataUrl.indexOf('data:') === 0) {
           // Estrai mime type e data dal data URL
           var parts = dataUrl.split(',');
           var header = parts[0];
           var data = parts[1];
-          
+
           var mimeMatch = header.match(/data:([^;]+);/);
           if (mimeMatch) {
             mimeType = mimeMatch[1];
           }
-          
+
           // Converti base64 a blob
           var binaryString = atob(data);
           var bytes = new Uint8Array(binaryString.length);
@@ -796,7 +825,7 @@
         // Crea FormData per l'upload
         var formData = new FormData();
         formData.append(options.fileKey || 'file', blob, fileName);
-        
+
         // Aggiungi parametri extra se presenti
         if (options.params) {
           for (var key in options.params) {
@@ -818,7 +847,7 @@
 
         // Esegui upload con fetch
         log('FileTransfer: Inizio upload a ' + server);
-        
+
         fetch(server, {
           method: options.httpMethod || 'POST',
           body: formData,
@@ -836,19 +865,19 @@
         })
         .then(function(result) {
           log('FileTransfer: Upload completato con status ' + result.status, 'success');
-          
+
           var uploadResult = {
             bytesSent: blob.size,
             responseCode: result.status,
             response: result.body,
             headers: {}
           };
-          
+
           // Converti headers in oggetto
           result.headers.forEach(function(value, key) {
             uploadResult.headers[key] = value;
           });
-          
+
           if (result.status >= 200 && result.status < 300) {
             successCallback && successCallback(uploadResult);
           } else {
