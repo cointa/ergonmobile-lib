@@ -10,7 +10,7 @@
   // Config
   var BRIDGE_CONFIG = {
     debug: true,
-    timeout: 5000,
+    timeout: 10000,
     maxRetries: 3
   };
 
@@ -282,7 +282,13 @@
 
       file: function(successCallback, errorCallback) {
         log('FileEntry.file: ' + this.fullPath);
-        sendCommand('fileRead', { path: cleanPath })
+
+        // Determina se il file è binario dall'estensione
+        var ext = this.name.split('.').pop().toLowerCase();
+        var isBinary = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'avi', 'mov', 'm4a', 'mp3', 'wav'].indexOf(ext) !== -1;
+        var command = isBinary ? 'fileReadAsDataURL' : 'fileRead';
+
+        sendCommand(command, { path: cleanPath })
           .then(function(result) {
             // Controlla se c'è un errore nel result
             if (result.error) {
@@ -291,8 +297,37 @@
               return;
             }
 
-            var blob = new Blob([result.data], { type: 'application/json' });
-            var file = new File([blob], this.name, { type: 'application/json' });
+            var data = result.data;
+            var mimeType = 'application/octet-stream';
+
+            // Estrai mime type dal data URL se presente
+            if (isBinary && data.indexOf('data:') === 0) {
+              var match = data.match(/^data:([^;]+);base64,/);
+              if (match) {
+                mimeType = match[1];
+                // Rimuovi il prefisso data URL per creare il Blob
+                data = data.substring(data.indexOf(',') + 1);
+              }
+            } else if (!isBinary) {
+              mimeType = 'text/plain';
+            }
+
+            // Crea Blob appropriato
+            var blob;
+            if (isBinary) {
+              // Converti base64 a binary string
+              var binaryString = atob(data);
+              var len = binaryString.length;
+              var bytes = new Uint8Array(len);
+              for (var i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              blob = new Blob([bytes], { type: mimeType });
+            } else {
+              blob = new Blob([data], { type: mimeType });
+            }
+
+            var file = new File([blob], this.name, { type: mimeType });
             file.fullPath = this.fullPath;
             successCallback && successCallback(file);
           }.bind(this))
@@ -538,7 +573,7 @@
           allowEdit: options.allowEdit || false,
           correctOrientation: options.correctOrientation || false,
           saveToPhotoAlbum: options.saveToPhotoAlbum || false
-        })
+        }, { timeout: 0 })  // Nessun timeout per operazioni camera
         .then(function(result) {
           log('Camera.getPicture success: ' + result.filePath, 'success');
           successCallback && successCallback(result.filePath);
@@ -569,7 +604,7 @@
         sendCommand('captureVideo', {
           limit: (options && options.limit) || 1,
           duration: (options && options.duration) || 0
-        })
+        }, { timeout: 0 })  // Nessun timeout per capture video
         .then(function(result) {
           log('Capture.captureVideo success', 'success');
           var mediaFiles = result.files.map(function(file) {
@@ -594,7 +629,7 @@
 
         sendCommand('captureImage', {
           limit: (options && options.limit) || 1
-        })
+        }, { timeout: 0 })  // Nessun timeout per capture image
         .then(function(result) {
           log('Capture.captureImage success', 'success');
           var mediaFiles = result.files.map(function(file) {
@@ -620,7 +655,7 @@
         sendCommand('captureAudio', {
           limit: (options && options.limit) || 1,
           duration: (options && options.duration) || 0
-        })
+        }, { timeout: 0 })  // Nessun timeout per capture audio
         .then(function(result) {
           log('Capture.captureAudio success', 'success');
           var mediaFiles = result.files.map(function(file) {
@@ -652,7 +687,7 @@
 
         sendCommand('audioRecorderRecord', {
           duration: duration || 0
-        })
+        }, { timeout: 0 })  // Nessun timeout per audio recorder
         .then(function(result) {
           log('AudioRecorder.recordAudio success', 'success');
           var jsonResult = JSON.stringify({
