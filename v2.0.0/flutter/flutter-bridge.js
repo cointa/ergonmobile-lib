@@ -772,146 +772,49 @@
 
     options = options || new FileUploadOptions();
 
-    // Normalizza il path (rimuovi file://)
-    var cleanPath = filePath.replace(/^file:\/\//, '');
+    // Invia tutti i parametri necessari al lato nativo per l'upload
+    sendCommand('fileUpload', {
+      filePath: filePath,
+      serverUrl: server,
+      fileKey: options.fileKey || 'file',
+      fileName: options.fileName || (filePath.split('/').pop() || 'file'),
+      mimeType: options.mimeType,
+      params: options.params,
+      headers: options.headers
+    }, { timeout: 0 }) // Nessun timeout, gestito da Flutter
+    .then(function(result) {
+      log('FileTransfer: Upload completato con status ' + result.responseCode, 'success');
 
-    // Prima leggi il file come data URL usando il nostro comando
-    var isBinary = true; // Assume sempre binario per upload
-    var command = isBinary ? 'fileReadAsDataURL' : 'fileRead';
+      var uploadResult = {
+        bytesSent: result.bytesSent,
+        responseCode: result.responseCode,
+        response: result.response,
+        headers: {} // Flutter non ritorna headers della response direttamente qui
+      };
 
-    sendCommand(command, { path: cleanPath })
-      .then(function(result) {
-        if (result.error) {
-          log('FileTransfer: Errore lettura file: ' + result.error, 'error');
-          errorCallback && errorCallback(new FileTransferError(
-            FileTransferError.FILE_NOT_FOUND_ERR,
-            filePath,
-            server,
-            0,
-            result.error
-          ));
-          return;
-        }
-
-        // Converti data URL in Blob
-        var dataUrl = result.data;
-        var mimeType = options.mimeType || 'application/octet-stream';
-        var fileName = options.fileName || 'file';
-
-        var blob;
-        if (dataUrl.indexOf('data:') === 0) {
-          // Estrai mime type e data dal data URL
-          var parts = dataUrl.split(',');
-          var header = parts[0];
-          var data = parts[1];
-
-          var mimeMatch = header.match(/data:([^;]+);/);
-          if (mimeMatch) {
-            mimeType = mimeMatch[1];
-          }
-
-          // Converti base64 a blob
-          var binaryString = atob(data);
-          var bytes = new Uint8Array(binaryString.length);
-          for (var i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          blob = new Blob([bytes], { type: mimeType });
-        } else {
-          // Dati testuali
-          blob = new Blob([result.data], { type: mimeType });
-        }
-
-        // Crea FormData per l'upload
-        var formData = new FormData();
-        formData.append(options.fileKey || 'file', blob, fileName);
-
-        // Aggiungi parametri extra se presenti
-        if (options.params) {
-          for (var key in options.params) {
-            if (options.params.hasOwnProperty(key)) {
-              formData.append(key, options.params[key]);
-            }
-          }
-        }
-
-        // Prepara headers
-        var headers = {};
-        if (options.headers) {
-          for (var headerKey in options.headers) {
-            if (options.headers.hasOwnProperty(headerKey)) {
-              headers[headerKey] = options.headers[headerKey];
-            }
-          }
-        }
-
-        // Esegui upload con fetch
-        log('FileTransfer: Inizio upload a ' + server);
-
-        fetch(server, {
-          method: options.httpMethod || 'POST',
-          body: formData,
-          headers: headers
-        })
-        .then(function(response) {
-          return response.text().then(function(responseText) {
-            return {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers,
-              body: responseText
-            };
-          });
-        })
-        .then(function(result) {
-          log('FileTransfer: Upload completato con status ' + result.status, 'success');
-
-          var uploadResult = {
-            bytesSent: blob.size,
-            responseCode: result.status,
-            response: result.body,
-            headers: {}
-          };
-
-          // Converti headers in oggetto
-          result.headers.forEach(function(value, key) {
-            uploadResult.headers[key] = value;
-          });
-
-          if (result.status >= 200 && result.status < 300) {
-            successCallback && successCallback(uploadResult);
-          } else {
-            log('FileTransfer: Upload fallito con status ' + result.status, 'error');
-            errorCallback && errorCallback(new FileTransferError(
-              FileTransferError.CONNECTION_ERR,
-              filePath,
-              server,
-              result.status,
-              result.body
-            ));
-          }
-        })
-        .catch(function(error) {
-          log('FileTransfer: Errore upload: ' + error.message, 'error');
-          errorCallback && errorCallback(new FileTransferError(
-            FileTransferError.CONNECTION_ERR,
-            filePath,
-            server,
-            0,
-            error.message
-          ));
-        });
-      })
-      .catch(function(error) {
-        log('FileTransfer: Errore lettura file: ' + error.message, 'error');
+      if (result.responseCode >= 200 && result.responseCode < 300) {
+        successCallback && successCallback(uploadResult);
+      } else {
+        log('FileTransfer: Upload fallito con status ' + result.responseCode, 'error');
         errorCallback && errorCallback(new FileTransferError(
-          FileTransferError.FILE_NOT_FOUND_ERR,
+          FileTransferError.CONNECTION_ERR,
           filePath,
           server,
-          0,
-          error.message
+          result.responseCode,
+          result.response
         ));
-      });
+      }
+    })
+    .catch(function(error) {
+      log('FileTransfer: Errore upload: ' + error.message, 'error');
+      errorCallback && errorCallback(new FileTransferError(
+        FileTransferError.CONNECTION_ERR,
+        filePath,
+        server,
+        0, // Status sconosciuto in caso di errore di rete generale
+        error.message
+      ));
+    });
   };
 
   window.FileTransfer.prototype.download = function(source, target, successCallback, errorCallback, trustAllHosts, options) {
