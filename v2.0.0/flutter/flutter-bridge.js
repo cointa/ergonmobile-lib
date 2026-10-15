@@ -7,6 +7,30 @@
 (function(window) {
   'use strict';
 
+  var isIOS = /iPad|iPhone|iPod/.test(window.navigator.userAgent) ||
+    (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
+  if (isIOS) {
+    function fixFastClickInputFocus() {
+      if (!window.FastClick) return;
+
+      var originalFocus = window.FastClick.prototype.focus;
+      window.FastClick.prototype.focus = function(targetElement) {
+        // FastClick's setSelectionRange alone does not focus WKWebView inputs on iOS.
+        if (targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA') {
+          targetElement.focus();
+        }
+        return originalFocus.call(this, targetElement);
+      };
+    }
+
+    // The remote template loads this bridge before Onsen, unlike the local app.
+    if (window.FastClick) {
+      fixFastClickInputFocus();
+    } else if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', fixFastClickInputFocus, { once: true });
+    }
+  }
+
   // Config
   var BRIDGE_CONFIG = {
     debug: true,
